@@ -239,3 +239,80 @@ Content-Length: 0\r\n\r\n";
     assert_eq!(ack.uri, expected_uri, "ACK must target the remote Contact");
     Ok(())
 }
+
+#[tokio::test]
+async fn test_make_ack_telnyx_200_ok_with_record_route() -> Result<()> {
+    let endpoint = super::create_test_endpoint(None).await?;
+
+    // Exact 200 OK from Telnyx with dual Record-Route and Contact
+    let raw_response = "SIP/2.0 200 OK\r\n\
+Via: SIP/2.0/UDP 74.207.251.126:5060;received=74.207.251.126;rport;branch=z9hG4bKjL63rctvwSO3;rport=5060\r\n\
+Record-Route: <sip:10.255.0.1;r2=on;lr;ftag=6azf13sT>\r\n\
+Record-Route: <sip:192.76.120.10;r2=on;lr;ftag=6azf13sT>\r\n\
+From: <sip:17072833106@sip.telnyx.com>;tag=6azf13sT\r\n\
+To: <sip:15163987718@sip.telnyx.com:5060>;tag=BNe8yX73g07rm\r\n\
+Call-ID: SOmQzl5HEaxJw6CI3hjLTN@miuda.ai\r\n\
+CSeq: 2 INVITE\r\n\
+Contact: <sip:15163987718@10.239.90.204:5070;transport=udp>\r\n\
+Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, MESSAGE, INFO, UPDATE, REFER, NOTIFY\r\n\
+Supported: path\r\n\
+Allow-Events: talk, hold, conference, refer\r\n\
+Content-Type: application/sdp\r\n\
+Content-Disposition: session\r\n\
+Content-Length: 0\r\n\r\n";
+
+    let response = Response::try_from(raw_response)?;
+
+    // remote_uri should return the Contact URI
+    let request_uri = response.remote_uri(None)?;
+    info!("remote_uri returned: {:?}", request_uri);
+    let expected_contact_uri = Uri::try_from("sip:15163987718@10.239.90.204:5070;transport=udp")?;
+    assert_eq!(
+        request_uri, expected_contact_uri,
+        "remote_uri must return the Contact URI, not the Record-Route host. Got: {}",
+        request_uri
+    );
+
+    let ack = endpoint.inner.make_ack(&response, request_uri)?;
+
+    // ACK Request-URI should be the Contact URI
+    let expected_uri = Uri::try_from("sip:15163987718@10.239.90.204:5070;transport=udp")?;
+    assert_eq!(
+        ack.uri, expected_uri,
+        "ACK Request-URI must be the Contact from 200 OK, got: {}",
+        ack.uri
+    );
+
+    // Check Route headers are correctly reversed Record-Route
+    let routes: Vec<String> = ack
+        .headers
+        .iter()
+        .filter_map(|header| match header {
+            Header::Route(route) => Some(route.value().to_string()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(
+        routes,
+        vec![
+            "<sip:192.76.120.10;r2=on;lr;ftag=6azf13sT>".to_string(),
+            "<sip:10.255.0.1;r2=on;lr;ftag=6azf13sT>".to_string(),
+        ],
+        "ACK Route headers must follow reversed Record-Route order"
+    );
+
+    // Verify destination_from_request returns the first Route URI (loose routing)
+    let destination = destination_from_request(&ack)
+        .expect("ACK with Route headers should have a transport destination");
+    info!("destination_from_request returned: {:?}", destination);
+
+    // With loose routing (lr), transport destination should be the first Route URI
+    let expected_dest = Uri::try_from("sip:192.76.120.10;r2=on;lr;ftag=6azf13sT")?;
+    assert_eq!(
+        &*destination, &expected_dest,
+        "Transport destination must be the first Route URI for loose routing"
+    );
+
+    Ok(())
+}
