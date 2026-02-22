@@ -165,10 +165,25 @@ pub fn destination_from_request(request: &rsip::Request) -> Option<Cow<'_, rsip:
         .headers
         .iter()
         .find_map(|header| match header {
-            rsip::Header::Route(route) => route
-                .typed()
-                .ok()
-                .and_then(|r| r.uris().first().map(|u| Cow::Owned(u.uri.clone()))),
+            rsip::Header::Route(route) => route.typed().ok().and_then(|r| {
+                r.uris().first().and_then(|named_uri| {
+                    // RFC 3261 Section 12.2.1.1:
+                    // - Loose routing (lr param present): send to first Route URI
+                    // - Strict routing (no lr): Request-URI already rewritten to proxy,
+                    //   so use Request-URI as transport destination
+                    if named_uri
+                        .uri
+                        .params
+                        .iter()
+                        .any(|p| matches!(p, rsip::Param::Lr))
+                    {
+                        Some(Cow::Owned(named_uri.uri.clone()))
+                    } else {
+                        // Strict routing: fall through to request.uri
+                        None
+                    }
+                })
+            }),
             _ => None,
         })
         .or_else(|| Some(Cow::Borrowed(&request.uri)))
