@@ -1,4 +1,5 @@
 pub mod channel;
+mod compact_headers;
 pub mod connection;
 pub mod sip_addr;
 pub mod stream;
@@ -8,6 +9,7 @@ pub mod tls;
 pub mod transport_layer;
 pub mod udp;
 pub mod websocket;
+pub use compact_headers::expand_compact_headers;
 pub use connection::SipConnection;
 pub use connection::TransportEvent;
 pub use sip_addr::SipAddr;

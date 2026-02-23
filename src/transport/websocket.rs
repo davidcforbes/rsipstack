@@ -275,7 +275,12 @@ impl StreamConnection for WebSocketConnection {
             match msg {
                 Ok(Message::Text(text)) => {
                     debug!(src = %remote_addr, raw_message = %text, "websocket message received");
-                    match SipMessage::try_from(text.as_str()) {
+                    let parse_text;
+                    let parse_input = match super::expand_compact_headers(text.as_str()) {
+                        Some(s) => { parse_text = s; parse_text.as_str() }
+                        None => text.as_str(),
+                    };
+                    match SipMessage::try_from(parse_input) {
                         Ok(sip_msg) => {
                             let remote_socket_addr = remote_addr.get_socketaddr()?;
                             let sip_msg = SipConnection::update_msg_received(

@@ -123,7 +123,16 @@ impl Decoder for SipCodec {
 
             if src.len() >= total_len {
                 let msg_data = src.split_to(total_len); // consume full message
-                let msg = SipMessage::try_from(&msg_data[..])?;
+                // Expand compact SIP headers (RFC 3261 Section 7.3.3) before parsing
+                let msg = if let Ok(text) = std::str::from_utf8(&msg_data[..]) {
+                    if let Some(expanded) = super::expand_compact_headers(text) {
+                        SipMessage::try_from(expanded.as_str())?
+                    } else {
+                        SipMessage::try_from(&msg_data[..])?
+                    }
+                } else {
+                    SipMessage::try_from(&msg_data[..])?
+                };
                 return Ok(Some(SipCodecType::Message(msg)));
             }
         }

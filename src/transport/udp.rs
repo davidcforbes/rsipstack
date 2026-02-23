@@ -134,7 +134,16 @@ impl UdpConnection {
                 }
             };
 
-            let msg = match rsip::SipMessage::try_from(undecoded) {
+            let expanded;
+            let parse_input = match super::expand_compact_headers(undecoded) {
+                Some(s) => {
+                    expanded = s;
+                    expanded.as_str()
+                }
+                None => undecoded,
+            };
+
+            let msg = match rsip::SipMessage::try_from(parse_input) {
                 Ok(msg) => msg,
                 Err(e) => {
                     debug!(
